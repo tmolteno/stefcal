@@ -96,6 +96,11 @@ markers = [
     "slow: Tests that take more time to run",
 ]
 
+[tool.uv.workspace]
+members = [
+    "calibration",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",

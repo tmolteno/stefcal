@@ -1,0 +1,3 @@
+# CLI output artefacts from testing
+*.npy
+*.npz
