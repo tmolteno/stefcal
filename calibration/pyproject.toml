@@ -1,7 +1,7 @@
 [project]
 name = "tart-stefcal"
 version = "0.1.0"
-description = "StEFCal: alternating per-antenna complex-gain least squares solver"
+description = "StEFCal: alternating per-antenna complex-gain least squares solver for TART"
 readme = "README.md"
 authors = [
     { name = "Tim Molteno", email = "tim@elec.ac.nz" }
@@ -9,6 +9,8 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
+    "tart-tools>=1.4.5",
+    "h5py>=3.0",
 ]
 
 [project.optional-dependencies]
