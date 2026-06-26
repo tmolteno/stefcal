@@ -9,8 +9,10 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
+    "scipy>=1.9",
     "tart-tools>=1.4.5",
     "h5py>=3.0",
+    "tart-catalogue-client>=0.4.1",
 ]
 
 [project.optional-dependencies]

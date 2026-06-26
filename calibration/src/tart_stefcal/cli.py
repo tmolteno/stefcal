@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
+import sys
 import tempfile
 import urllib.parse
 from pathlib import Path
 
 import numpy as np
 
+from .beam import airy_power_beam
 from .skymodel import enu_direction_cosines, model_visibilities
 from .stefcal import referenced_phases, stefcal_solve
+
+_ZENITH = np.array([0.0, 0.0, 1.0])  # antenna boresight in the ENU frame
 
 # ---------------------------------------------------------------------------
 # File I/O helpers
@@ -99,16 +104,17 @@ def _download_latest_vis(api_url: str, out_dir: str, n: int = 1) -> list[Path]:
     return downloaded
 
 
-def _fetch_catalog(api_url: str, timestamp_str: str, lat: float, lon: float, elevation: float = 45.0) -> dict:
-    """Fetch the source catalog for a given timestamp from the TART API.
+def _fetch_catalog(lat: float, lon: float, dt, elevation: float = 45.0) -> list[dict]:
+    """Fetch satellite positions for a given time from the TART catalogue client.
 
-    Returns the parsed JSON catalog.
+    Returns a list of dicts with keys ``az``, ``el`` (degrees), filtered to
+    sources above ``elevation`` degrees.
     """
-    from tart_tools.api_handler import APIhandler
+    from tart_client import CatalogueClient
 
-    api = APIhandler(api_url)
-    cat_url = api.catalog_url(lon, lat, datestr=timestamp_str) + f"&elevation={elevation}"
-    return api.get_url(cat_url)
+    client = CatalogueClient()
+    positions = client.horizontal_positions(lat=lat, lon=lon, dt=dt)
+    return [{"az": s["azimuth_deg"], "el": s["elevation_deg"]} for s in positions if s["elevation_deg"] >= elevation]
 
 
 def _gains_to_json_dict(gains: np.ndarray) -> dict:
@@ -150,6 +156,7 @@ def _read_tart_hdf(hdf_path: str) -> dict:
         baselines: (nbl, 2) int [ant1, ant2]
         timestamps: (ntime,) str
         config: dict with lat, lon, num_antenna, frequency, antenna_positions, name
+        gains: optional (n_ant,) complex from the HDF5 (zero = dead antenna)
     """
     import h5py
 
@@ -164,12 +171,17 @@ def _read_tart_hdf(hdf_path: str) -> dict:
         if isinstance(raw_config, bytes):
             raw_config = raw_config.decode()
         config = json.loads(raw_config)
+        # Gains may or may not be present; zero gain = dead antenna
+        hdf_gains = None
+        if "gains" in f:
+            hdf_gains = f["gains"][:]
 
     return {
         "vis": vis,
         "baselines": baselines,
         "timestamps": timestamps,
         "config": config,
+        "gains": hdf_gains,
     }
 
 
@@ -256,6 +268,8 @@ def _cmd_phases(args: argparse.Namespace) -> None:
 
 def _cmd_run(args: argparse.Namespace) -> None:
     """End-to-end: download vis data, run StEFCal, optionally upload gains."""
+    if args.phases_only:
+        args.upload = True
     api_url = _resolve_api_url(args.tart_name)
     tart_name = _tart_name_from_input(args.tart_name)
     print(f"Telescope: {tart_name}  →  API: {api_url}")
@@ -263,39 +277,57 @@ def _cmd_run(args: argparse.Namespace) -> None:
     # --- step 1: download visibility data ---
     dl_dir = args.dir or tempfile.mkdtemp(prefix="tart_stefcal_")
     os.makedirs(dl_dir, exist_ok=True)
+    # Remove stale HDF5 files so every run downloads fresh data
+    for stale in Path(dl_dir).glob("*.hdf"):
+        stale.unlink()
     if args.archive:
-        print(f"Downloading from S3 archive (target={tart_name}, start={args.start}, duration={args.duration}) ...")
-        hdf_paths = _download_from_archive(tart_name, dl_dir, n=args.n, start=args.start, duration=args.duration)
+        n_archive = args.n if args.n != 1 else -1
+        start = args.start if args.start is not None else f"-{args.duration}"
+        print(
+            f"Downloading from S3 archive (target={tart_name}, start={start}, duration={args.duration}, n={n_archive}) ..."
+        )
+        hdf_paths = _download_from_archive(tart_name, dl_dir, n=n_archive, start=start, duration=args.duration)
     else:
         print(f"Downloading latest visibility data from API to {dl_dir} ...")
         hdf_paths = _download_latest_vis(api_url, dl_dir, n=args.n)
     print(f"Downloaded {len(hdf_paths)} file(s)")
 
-    # --- step 2: read first HDF5 ---
-    hdf_path = str(hdf_paths[0])
-    data = _read_tart_hdf(hdf_path)
-    config = data["config"]
+    # --- step 2: read and concatenate all HDF5 files ---
+    all_vis = []
+    all_timestamps = []
+    config = None
+    baselines = None
+    ant_positions = None
+    telescope_name = tart_name
+
+    for hdf_path in hdf_paths:
+        data = _read_tart_hdf(str(hdf_path))
+        if config is None:
+            config = data["config"]
+            baselines = data["baselines"]
+            ant_positions = np.array(config.get("antenna_positions", []))
+            telescope_name = config.get("name", tart_name)
+        all_vis.append(data["vis"])
+        all_timestamps.extend(data["timestamps"])
+
     n_ant = config["num_antenna"]
     freq_hz = config.get("frequency", 1.57542e9)
     lat = config["lat"]
     lon = config["lon"]
-    ant_positions = np.array(config.get("antenna_positions", []))
-    telescope_name = config.get("name", tart_name)
-
-    print(f"  Telescope: {telescope_name}  ({n_ant} antennas, {freq_hz / 1e6:.1f} MHz)")
-    print(f"  Location:  lat={lat:.4f}  lon={lon:.4f}")
-
-    vis = data["vis"]  # (ntime, nbl)
-    baselines = data["baselines"]  # (nbl, 2)
     a1 = baselines[:, 0].astype(np.int64)
     a2 = baselines[:, 1].astype(np.int64)
     nbl = len(a1)
-    ntime = len(data["timestamps"])
 
+    vis = np.concatenate(all_vis, axis=0)
+    ntime = len(all_timestamps)
     if vis.ndim == 2:
-        vis = vis[:, :, None]  # (ntime, nbl, 1)
+        vis = vis[:, :, None]
 
-    print(f"  Visibilities: {ntime} integrations × {nbl} baselines × {vis.shape[2]} channel(s)")
+    print(f"  Telescope: {telescope_name}  ({n_ant} antennas, {freq_hz / 1e6:.1f} MHz)")
+    print(f"  Location:  lat={lat:.4f}  lon={lon:.4f}")
+    print(
+        f"  Visibilities: {ntime} integrations x {nbl} baselines x {vis.shape[2]} channel(s) ({len(hdf_paths)} file(s))"
+    )
 
     # Baseline ENU vectors (metres)
     if len(ant_positions) >= n_ant:
@@ -305,32 +337,57 @@ def _cmd_run(args: argparse.Namespace) -> None:
         bl_enu = np.zeros((nbl, 3))
 
     # --- step 3: build model visibilities ---
+    use_beam = not args.no_beam
     freqs = np.array([freq_hz])
     models = []
+    source_counts = []
 
     for t_idx in range(ntime):
-        ts = data["timestamps"][t_idx]
+        ts = all_timestamps[t_idx]
         try:
-            catalog = _fetch_catalog(api_url, ts, lat, lon, elevation=args.elevation)
+            dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            catalog = _fetch_catalog(lat, lon, dt, elevation=args.elevation)
         except Exception as e:
-            print(f"Warning: could not fetch catalog for {ts}: {e}", file=sys.stderr)
-            # Use empty model (all ones — zero phase)
+            print(f"Warning: could not get catalogue for {ts}: {e}", file=sys.stderr)
             models.append(np.ones((nbl, 1), dtype=complex))
+            source_counts.append(0)
             continue
 
         if not catalog:
             models.append(np.ones((nbl, 1), dtype=complex))
+            source_counts.append(0)
             continue
 
+        source_counts.append(len(catalog))
         az = np.radians([s["az"] for s in catalog])
         el = np.radians([s["el"] for s in catalog])
-        s_enu = enu_direction_cosines(az, el, xp=np)  # model always on CPU
-        mvis = model_visibilities(s_enu, bl_enu, freqs, xp=np)  # (nbl, 1)
+        s_enu = enu_direction_cosines(az, el)
+        beam = airy_power_beam(s_enu, _ZENITH, freqs) if use_beam else None
+        mvis = model_visibilities(s_enu, bl_enu, freqs, beam=beam)
         models.append(mvis)
 
     models = np.stack(models)  # (ntime, nbl, 1)
+    sc = np.array(source_counts)
+    print(f"  Model sources: {sc.min()}-{sc.max()} above {args.elevation} deg elevation (mean {sc.mean():.1f})")
 
-    # --- step 4: run StEFCal ---
+    # --- step 4: auto-detect reference antenna ---
+    if args.ref_ant is None:
+        hdf_gains = data.get("gains")
+        if hdf_gains is not None and hdf_gains.ndim >= 1:
+            dead = np.asarray(hdf_gains).flat[:n_ant] == 0
+        else:
+            dead = np.zeros(n_ant, dtype=bool)
+        live = ~dead
+        live_from_bl = np.zeros(n_ant, dtype=bool)
+        live_from_bl[a1] = True
+        live_from_bl[a2] = True
+        live = live & live_from_bl
+        ref_ant = int(np.where(live)[0][0]) if live.any() else 0
+        print(f"  Auto-detected reference antenna: {ref_ant}")
+    else:
+        ref_ant = args.ref_ant
+
+    # --- step 5: run StEFCal ---
     print(f"Running StEFCal (max_iter={args.max_iter}, tol={args.tol}) ...")
     gains, info = stefcal_solve(
         vis,
@@ -339,7 +396,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         a2,
         n_ant,
         t_int=args.t_int,
-        ref_ant=args.ref_ant,
+        ref_ant=ref_ant,
         max_iter=args.max_iter,
         tol=args.tol,
     )
@@ -359,18 +416,24 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     if args.phases:
         phase_path = str(Path(args.output).with_name(Path(args.output).stem + "_phases.npy"))
-        phases = referenced_phases(gains, args.ref_ant)
-        np.save(phase_path, np.asarray(phases))
+        phases_run = referenced_phases(gains, ref_ant)
+        np.save(phase_path, np.asarray(phases_run))
         print(f"Phases written to {phase_path}")
 
     if args.json:
         json_path = str(Path(args.output).with_name(Path(args.output).stem + ".json"))
-        _write_gains_json(gains, json_path, ref_ant=args.ref_ant)
+        _write_gains_json(gains, json_path, ref_ant=ref_ant)
 
-    # --- step 6: upload ---
+    # --- step 7: upload ---
     if args.upload:
-        print(f"Uploading gains to {api_url} ...")
-        _upload_gains_json(api_url, args.pw, g_final)
+        if args.phases_only:
+            g_upload = g_final / np.abs(g_final)
+            g_upload = np.where(np.isfinite(g_upload), g_upload, g_final)
+            print(f"Uploading phases only (unity amplitudes) to {api_url} ...")
+        else:
+            g_upload = g_final
+            print(f"Uploading gains to {api_url} ...")
+        _upload_gains_json(api_url, args.pw, g_upload)
     else:
         print("Skipping upload (use --upload to push gains to the telescope).")
 
@@ -397,23 +460,34 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--tart-name", required=True, help="Telescope name (e.g. mu-udm, signal) or API URL.")
     p_run.add_argument("--pw", default="password", help="API password for uploading gains.")
     p_run.add_argument("--dir", default=None, help="Download directory (default: temp dir).")
-    p_run.add_argument("--n", type=int, default=1, help="Number of HDF files to download (default: 1).")
+    p_run.add_argument(
+        "--n",
+        type=int,
+        default=1,
+        help="Number of HDF files to download. With --archive, default becomes all files in the time window.",
+    )
     p_run.add_argument("--archive", action="store_true", help="Download from S3 archive instead of the API.")
     p_run.add_argument(
         "--start",
-        default="-60",
-        help="Start time for archive download (default: -60 = 60 min ago; ISO-8601 also accepted).",
+        default=None,
+        help="Start time for archive download (default: -duration; ISO-8601 also accepted).",
     )
     p_run.add_argument("--duration", default="10", help="Duration in minutes for archive download (default: 10).")
     p_run.add_argument("--elevation", type=float, default=45.0, help="Elevation cutoff for source catalog (deg).")
     p_run.add_argument("--t-int", type=int, default=None, help="Integrations per solution interval (None=all).")
-    p_run.add_argument("--ref-ant", type=int, default=0, help="Reference antenna (default: 0).")
+    p_run.add_argument("--ref-ant", type=int, default=None, help="Reference antenna (default: auto-detect first live).")
+    p_run.add_argument("--no-beam", action="store_true", help="Disable Airy primary beam weighting in the model.")
     p_run.add_argument("--max-iter", type=int, default=100, help="Max StEFCal iterations (default: 100).")
     p_run.add_argument("--tol", type=float, default=1e-8, help="Convergence tolerance (default: 1e-8).")
     p_run.add_argument("--output", "-o", default="gains.npz", help="Output file (default: gains.npz).")
     p_run.add_argument("--phases", action="store_true", help="Also output gauge-referenced phases.")
     p_run.add_argument("--json", action="store_true", help="Also output gains as TART-compatible JSON.")
     p_run.add_argument("--upload", action="store_true", help="Upload gains to the telescope after solving.")
+    p_run.add_argument(
+        "--phases-only",
+        action="store_true",
+        help="Upload phase offsets only (unity amplitudes). Implies --upload.",
+    )
 
     # --- solve (local) ---
     p_solve = sub.add_parser("solve", help="Solve per-antenna complex gains from local files.")
