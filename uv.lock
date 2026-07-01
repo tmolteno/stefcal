@@ -2822,6 +2822,11 @@ gpu = [
     { name = "cupy" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cupy", marker = "extra == 'gpu'", specifier = ">=13.0" },
@@ -2832,6 +2837,9 @@ requires-dist = [
     { name = "tart-tools", specifier = ">=1.4.5" },
 ]
 provides-extras = ["gpu"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "tart-tools"

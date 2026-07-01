@@ -30,6 +30,11 @@ calibration/
     ├── skymodel.py             # ENU model visibilities (ported from kremetart/utils/skymodel.py)
     ├── beam.py                 # Airy primary beam (ported from kremetart/utils/beam.py)
     └── cli.py                  # argparse CLI: run, solve, phases subcommands
+tests/
+├── __init__.py
+├── test_stefcal.py             # Solver unit tests (adapted from kremetart)
+├── test_skymodel.py            # Skymodel + beam unit tests (adapted from kremetart)
+└── test_cli.py                 # CLI smoke tests + format validation
 ```
 
 ## Key differences from `kremetart`
@@ -77,6 +82,7 @@ Key options:
 | `--tart-name` | *(required)* | Telescope name or API URL |
 | `--upload` | off | Push gains to the telescope |
 | `--phases-only` | off | Upload phases only (unity amplitudes). Implies `--upload` |
+| `--negate-phases` | off | Negate phase offsets before upload |
 | `--archive` | off | Download from S3 archive instead of API |
 | `--start` | `-duration` | Archive start time (negative offset in min, or ISO-8601) |
 | `--duration` | `10` | Archive time window in minutes |

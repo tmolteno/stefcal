@@ -133,11 +133,13 @@ def _gains_to_json_dict(gains: np.ndarray) -> dict:
     }
 
 
-def _upload_gains_json(api_url: str, password: str, gains: np.ndarray) -> None:
+def _upload_gains_json(api_url: str, password: str, gains: np.ndarray, *, negate_phases: bool = False) -> None:
     """Upload complex gains to the TART telescope API."""
     from tart_tools.api_handler import AuthorizedAPIhandler, upload_gain
 
     api_dict = _gains_to_json_dict(gains)
+    if negate_phases:
+        api_dict["phase_offset"] = [None if v is None else -v for v in api_dict["phase_offset"]]
     api = AuthorizedAPIhandler(api_url, password)
     upload_gain(api, api_dict)
     print(f"Gains uploaded to {api_url}")
@@ -433,7 +435,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         else:
             g_upload = g_final
             print(f"Uploading gains to {api_url} ...")
-        _upload_gains_json(api_url, args.pw, g_upload)
+        _upload_gains_json(api_url, args.pw, g_upload, negate_phases=args.negate_phases)
     else:
         print("Skipping upload (use --upload to push gains to the telescope).")
 
@@ -487,6 +489,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--phases-only",
         action="store_true",
         help="Upload phase offsets only (unity amplitudes). Implies --upload.",
+    )
+    p_run.add_argument(
+        "--negate-phases",
+        action="store_true",
+        help="Negate phase offsets before upload.",
     )
 
     # --- solve (local) ---
