@@ -1,10 +1,11 @@
 """Holoscan operator: per-pixel q=1 IWP-Kalman whitening filter (GPU-resident, xp=cupy).
 
 Holds the Kalman state (means ``X``, covariances ``P``, previous timestamp ``t_prev``) as
-attributes; consumes the imager's per-frame dirty map (the observation) and timestamp, runs the
-exact IWP predict+update (kremetart.utils.iwp) with the per-frame Delta from the timestamp
-stream, and emits the dirty map (passthrough), the filtered flux x_{k|k}[0] and the normalised
-innovation z_k. See docs/superpowers/specs/2026-06-17-smoovie-iwp-filter-design.md.
+attributes; consumes a per-frame input map (the observation -- in the smoovie pipeline the
+Tikhonov-deconvolved model) and timestamp, runs the exact IWP predict+update (kremetart.utils.iwp)
+with the per-frame Delta from the timestamp stream, and emits that input map (passthrough), the
+filtered flux x_{k|k}[0] and the normalised innovation z_k. See
+docs/superpowers/specs/2026-06-17-smoovie-iwp-filter-design.md.
 """
 
 import cupy as cp

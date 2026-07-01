@@ -8,6 +8,7 @@ import numpy as np
 from kremetart.utils.healpix_viz import (
     NAMES,
     SYMMETRIC,
+    UNITS,
     FrameSlot,
     LatestFrameHolder,
     encode_frame,
@@ -18,9 +19,16 @@ from kremetart.utils.healpix_viz import (
 from kremetart.utils.web_server import FrameServer
 
 
-def test_names_and_symmetric():
-    assert NAMES == ("raw", "smooth", "znorm")
+def test_names_symmetric_and_units():
+    assert NAMES == ("dirty", "tikhonov", "l1", "smooth", "znorm")
     assert SYMMETRIC == frozenset({"znorm"})
+    assert UNITS == {
+        "dirty": "Jy/beam",
+        "tikhonov": "Jy/pixel",
+        "l1": "Jy/pixel",
+        "smooth": "Jy/pixel",
+        "znorm": "",
+    }
 
 
 def test_encode_frame_plain():
@@ -45,13 +53,26 @@ def test_encode_frame_empty():
 
 def test_holder_put_and_snapshot_latest_wins():
     h = LatestFrameHolder(NAMES)
-    assert h.snapshot() == {"raw": None, "smooth": None, "znorm": None}
-    h.put("raw", 0, 1.0, 0.0, 1.0, b"a")
-    h.put("raw", 1, 2.0, 0.0, 1.0, b"b")  # latest wins
+    assert h.snapshot() == {n: None for n in NAMES}
+    h.put("dirty", 0, 1.0, 0.0, 1.0, b"a")
+    h.put("dirty", 1, 2.0, 0.0, 1.0, b"b")  # latest wins
     snap = h.snapshot()
-    assert isinstance(snap["raw"], FrameSlot)
-    assert snap["raw"].seq == 1 and snap["raw"].data == b"b"
+    assert isinstance(snap["dirty"], FrameSlot)
+    assert snap["dirty"].seq == 1 and snap["dirty"].data == b"b"
     assert h.current_seq == 1
+
+
+def test_geometry_message_includes_unit():
+    assert geometry_message("dirty", 2, nest=True, unit="Jy/beam")["unit"] == "Jy/beam"
+    assert geometry_message("dirty", 2, nest=True)["unit"] == ""  # default empty
+
+
+def test_frame_server_forwards_units():
+    from kremetart.utils.web_server import FrameServer
+
+    holder = LatestFrameHolder(NAMES)
+    server = FrameServer(holder, nside=2, nest=True, names=NAMES, units=UNITS, port=8080)
+    assert server.units == UNITS
 
 
 def test_holder_finish_flag():
@@ -82,9 +103,9 @@ def test_holder_is_thread_safe_under_concurrent_puts():
 def test_geometry_message_shape():
     nside = 2
     npix = hp.nside2npix(nside)  # 48
-    msg = geometry_message("raw", nside, nest=True)
+    msg = geometry_message("dirty", nside, nest=True)
     assert msg["type"] == "geometry"
-    assert msg["name"] == "raw"
+    assert msg["name"] == "dirty"
     assert msg["order"] == "NESTED"
     assert msg["npix"] == npix
     assert len(msg["corners"]) == npix * 4 * 3  # (npix,4,3) flattened

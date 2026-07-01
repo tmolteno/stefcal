@@ -13,8 +13,15 @@ from dataclasses import dataclass
 import healpy as hp
 import numpy as np
 
-NAMES: tuple[str, ...] = ("raw", "smooth", "znorm")
+NAMES: tuple[str, ...] = ("dirty", "tikhonov", "l1", "smooth", "znorm")
 SYMMETRIC: frozenset[str] = frozenset({"znorm"})
+UNITS: dict[str, str] = {
+    "dirty": "Jy/beam",
+    "tikhonov": "Jy/pixel",
+    "l1": "Jy/pixel",
+    "smooth": "Jy/pixel",
+    "znorm": "",
+}
 
 
 @dataclass(frozen=True)
@@ -88,8 +95,8 @@ def _order(nest: bool) -> str:
     return "NESTED" if nest else "RING"
 
 
-def geometry_message(name: str, nside: int, nest: bool) -> dict:
-    """Per-name pixel-corner geometry, sent once on connect (matches the demo payload)."""
+def geometry_message(name: str, nside: int, nest: bool, *, unit: str = "") -> dict:
+    """Per-name pixel-corner geometry + unit label, sent once on connect."""
     npix = hp.nside2npix(nside)
     vecs = hp.boundaries(nside, np.arange(npix), step=1, nest=nest)  # (npix, 3, 4)
     corners = np.transpose(vecs, (0, 2, 1)).astype(np.float32)  # (npix, 4, 3)
@@ -99,6 +106,7 @@ def geometry_message(name: str, nside: int, nest: bool) -> dict:
         "nside": int(nside),
         "order": _order(nest),
         "npix": int(npix),
+        "unit": unit,
         "corners": corners.reshape(-1).tolist(),
     }
 

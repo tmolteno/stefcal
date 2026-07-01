@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kremetart.utils.healpix_viz import NAMES, LatestFrameHolder, encode_frame
+from kremetart.utils.healpix_viz import NAMES, UNITS, LatestFrameHolder, encode_frame
 from kremetart.utils.web_server import FrameServer
 
 
@@ -60,7 +60,7 @@ def served():
     holder.finish()
 
     port = _free_port()
-    server = FrameServer(holder, nside=2, nest=True, names=NAMES, port=port, host="127.0.0.1")
+    server = FrameServer(holder, nside=2, nest=True, names=NAMES, units=UNITS, port=port, host="127.0.0.1")
     url = server.start()
 
     deadline = time.time() + 10.0  # wait for uvicorn to bind
@@ -119,6 +119,7 @@ def test_stream_protocol_geometry_frames_end(served):
     assert nbin == len(NAMES)  # one binary payload per frame header
     assert types[-1] == "end"  # clean terminator
     assert types.index("geometry") < types.index("frame") < types.index("end")
+    assert {g["name"]: g["unit"] for g in geo} == UNITS  # each geometry carries its unit label
 
 
 # --- fan-out: real GPU pipeline populates the holder AND writes the zarr -------------------------

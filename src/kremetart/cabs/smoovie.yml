@@ -69,14 +69,16 @@ cabs:
           Airy aperture (ground plane) diameter in metres.
         dtype: float
         default: 0.125
-      eta:
+      l2:
         info:
-          Tikhonov regularisation strength (fraction of weight sum); inserts a CG deconvolution stage.
-        dtype: Optional[float]
-      regulariser:
+          Tikhonov (L2) deconvolution strength as a fraction of weight sum (lambda = l2 * sum w).
+        dtype: float
+        default: 0.01
+      l1:
         info:
-          'Deconvolution regulariser when eta>0: tikhonov (CG, default) or l1 (reweighted-L1 FISTA).'
-        default: tikhonov
+          Reweighted-L1 deconvolution strength as a fraction of weight sum (lambda = l1 * sum w).
+        dtype: float
+        default: 0.01
       overwrite:
         info:
           Overwrite the output zarr if it already exists.

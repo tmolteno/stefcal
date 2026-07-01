@@ -1,7 +1,7 @@
 # src/kremetart/operators/web_sink.py
 """Holoscan terminal sink: stream named float32 HEALPix maps to the web layer.
 
-Receives the last compute stage's named maps (wired raw/smooth/znorm + time_out), copies
+Receives the last compute stage's named maps (one input per name in ``NAMES`` + time_out), copies
 device→host with ``cp.asnumpy`` when GPU-resident, and drops one frame per name (sharing a
 per-integration sequence number) into a LatestFrameHolder. ``compute`` never touches the
 socket and returns immediately, so a slow/disconnected browser cannot backpressure the GXF

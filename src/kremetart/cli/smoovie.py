@@ -98,18 +98,18 @@ def smoovie(
             help="Airy aperture (ground plane) diameter in metres.",
         ),
     ] = 0.125,
-    eta: Annotated[
-        float | None,
+    l2: Annotated[
+        float,
         typer.Option(
-            help="Tikhonov regularisation strength (fraction of weight sum); inserts a CG deconvolution stage.",
+            help="Tikhonov (L2) deconvolution strength as a fraction of weight sum (lambda = l2 * sum w).",
         ),
-    ] = None,
-    regulariser: Annotated[
-        str,
+    ] = 0.01,
+    l1: Annotated[
+        float,
         typer.Option(
-            help="Deconvolution regulariser when eta>0: tikhonov (CG, default) or l1 (reweighted-L1 FISTA).",
+            help="Reweighted-L1 deconvolution strength as a fraction of weight sum (lambda = l1 * sum w).",
         ),
-    ] = "tikhonov",
+    ] = 0.01,
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -190,8 +190,8 @@ def smoovie(
                     iwp_noise=iwp_noise,
                     apply_beam=apply_beam,
                     ground_plane_diameter=ground_plane_diameter,
-                    eta=eta,
-                    regulariser=regulariser,
+                    l2=l2,
+                    l1=l1,
                     overwrite=overwrite,
                     nframes=nframes,
                     serve=serve,
@@ -219,8 +219,8 @@ def smoovie(
                 iwp_noise=iwp_noise,
                 apply_beam=apply_beam,
                 ground_plane_diameter=ground_plane_diameter,
-                eta=eta,
-                regulariser=regulariser,
+                l2=l2,
+                l1=l1,
                 overwrite=overwrite,
                 nframes=nframes,
                 serve=serve,
@@ -257,8 +257,8 @@ def smoovie(
             iwp_noise=iwp_noise,
             apply_beam=apply_beam,
             ground_plane_diameter=ground_plane_diameter,
-            eta=eta,
-            regulariser=regulariser,
+            l2=l2,
+            l1=l1,
             overwrite=overwrite,
             nframes=nframes,
             serve=serve,

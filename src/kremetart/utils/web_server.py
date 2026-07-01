@@ -75,13 +75,16 @@ async def stream_handler(
 class FrameServer:
     """FastAPI app (renderer + /static + /stream) on a uvicorn daemon thread."""
 
-    def __init__(self, holder: LatestFrameHolder, *, nside, nest, names, port, tracks=None, host="127.0.0.1"):
+    def __init__(
+        self, holder: LatestFrameHolder, *, nside, nest, names, port, tracks=None, units=None, host="127.0.0.1"
+    ):
         self.holder = holder
         self.nside = nside
         self.nest = nest
         self.names = tuple(names)
         self.port = port
         self.host = host
+        self.units = dict(units) if units is not None else {}
         self._tracks_msg = tracks_payload(tracks) if tracks is not None else None
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
@@ -89,7 +92,7 @@ class FrameServer:
     def create_app(self) -> FastAPI:
         static_dir = resources.files("kremetart") / "static"
         index_html = (static_dir / "index.html").read_text()
-        geom_msgs = [geometry_message(n, self.nside, self.nest) for n in self.names]
+        geom_msgs = [geometry_message(n, self.nside, self.nest, unit=self.units.get(n, "")) for n in self.names]
         headers = {n: frame_header(n, self.nside, self.nest) for n in self.names}
 
         app = FastAPI()

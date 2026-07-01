@@ -1,13 +1,16 @@
 """Holoscan operator: per-frame reweighted-L1 deconvolution via FISTA (GPU-resident, xp=cupy).
 
-A drop-in sibling of :class:`kremetart.operators.tikhonov.TikhonovOperator`: identical ports and
-per-frame contract, but it solves ``min ½⟨x,Hx⟩ − ⟨b,x⟩ + λ Σ wᵢ|xᵢ|`` (non-negative, sparse) with
-:func:`kremetart.opt.fista.fista_quadratic` instead of the Tikhonov CG normal-equation solve. ``H``
-is the image-space Hessian (:func:`kremetart.utils.healpix_dft.hessian_healpix`), ``b`` the
-un-normalised dirty image (the imager's normalised dirty times ``Σw``), and ``λ = eta·Σw`` makes
-``eta`` a frame-invariant fraction of the central PSF value ``Σw`` (matching the Tikhonov knob). The
+The reweighted-L1 counterpart of :class:`kremetart.operators.tikhonov.TikhonovOperator`: it shares
+the same per-frame inputs (the imager dirty plus the weights/geometry/beam that build ``H``) but
+exposes a single output, ``cube`` (the L1 deconvolved image), wired to the writer/sink ``l1`` port in
+:class:`kremetart.core.smoovie.SmooviePipeline`. It solves ``min ½⟨x,Hx⟩ − ⟨b,x⟩ + λ Σ wᵢ|xᵢ|``
+(non-negative, sparse) with :func:`kremetart.opt.fista.fista_quadratic` instead of the Tikhonov CG
+normal-equation solve. ``H`` is the image-space Hessian
+(:func:`kremetart.utils.healpix_dft.hessian_healpix`), ``b`` the un-normalised dirty image (the
+imager's normalised dirty times ``Σw``), and ``λ = eta·Σw`` makes ``eta`` a frame-invariant fraction
+of the central PSF value ``Σw`` (matching the Tikhonov knob; ``smoovie`` drives it via ``--l1``). The
 Lipschitz step is seeded from the closed-form ``diag(H).max()`` that ``hessian_healpix`` returns, so
-backtracking almost never fires. Selected via ``smoovie``'s ``--regulariser l1``. See
+backtracking almost never fires. See
 docs/superpowers/specs/2026-06-25-reweighted-l1-deconvolution-design.md.
 """
 
@@ -80,17 +83,13 @@ class L1ReweightOperator(Operator):
         spec.input("WEIGHT")
         spec.input("B_ROT")
         spec.input("BORESIGHT")
-        spec.input("time_out")
-        spec.output("cube")  # regularised image -> IWP
-        spec.output("dirty")  # raw dirty passthrough -> writer
-        spec.output("time_out")
+        spec.output("cube")  # regularised image -> writer "l1" port
 
     def compute(self, op_input, op_output, context):
         dirty = cp.asarray(op_input.receive("cube"))  # (1, npix)
         weights = cp.asarray(op_input.receive("WEIGHT"))  # (1, nbl, nchan)
         b_rot = cp.asarray(op_input.receive("B_ROT"))  # (1, nbl, 3)
         boresight = cp.asarray(op_input.receive("BORESIGHT"))  # (1, 3)
-        time_out = cp.asarray(op_input.receive("time_out"))  # (1,)
 
         w = weights[0]  # (nbl, nchan)
         wsum = w.sum()
@@ -100,8 +99,6 @@ class L1ReweightOperator(Operator):
         if float(wsum) == 0.0:
             zeros = cp.zeros(self.pix_vec.shape[0], dtype=cp.float64)
             op_output.emit(hs.as_tensor(zeros[None, :]), "cube")
-            op_output.emit(hs.as_tensor(dirty), "dirty")
-            op_output.emit(hs.as_tensor(time_out), "time_out")
             return
 
         beam = None
@@ -135,5 +132,3 @@ class L1ReweightOperator(Operator):
         self.x_prev = x
 
         op_output.emit(hs.as_tensor(x[None, :]), "cube")
-        op_output.emit(hs.as_tensor(dirty), "dirty")
-        op_output.emit(hs.as_tensor(time_out), "time_out")

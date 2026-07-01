@@ -216,11 +216,11 @@ class HealpixZarrReaderOperator(Operator):
 
 
 class HealpixWriterOperator(Operator):
-    """Write per-frame HEALPix maps (``dirty``, ``filtered``, ``znorm``) to a ``(TIME, PIX)`` zarr
-    (dask scaffold + region="auto").
+    """Write per-frame HEALPix maps to a ``(TIME, PIX)`` zarr (dask scaffold + region="auto").
 
-    Mirrors :class:`ResultWriterOperator`'s scaffold-then-region-write pattern, but for three flat
-    ``(TIME, npix)`` HEALPix variables rather than a ``(STOKES, FREQ, TIME, Y, X)`` image cube.
+    The stored variables are configured by ``var_specs`` (one ``(input_port, variable_name)`` pair
+    per map). Mirrors :class:`ResultWriterOperator`'s scaffold-then-region-write pattern, but for
+    flat ``(TIME, npix)`` HEALPix variables rather than a ``(STOKES, FREQ, TIME, Y, X)`` image cube.
 
     ``out_times`` MUST equal the streamed frames' ``time`` values (the prepared zarr's ``time``
     coordinate): ``region="auto"`` locates each frame by matching its emitted ``time_out`` against
@@ -245,9 +245,9 @@ class HealpixWriterOperator(Operator):
         self.npix = npix
         self.out_times = out_times if out_times is not None else np.arange(ntime)
         self.pix = np.arange(npix)
-        # var_specs maps (input_port -> stored_variable_name); default is the un-regularised schema.
-        # With the Tikhonov stage it also carries ("regularised") and the raw ("dirty") from two
-        # upstream operators (see kremetart.core.smoovie.SmooviePipeline.compose).
+        # var_specs maps (input_port -> stored_variable_name); the default below is a minimal schema.
+        # smoovie's pipeline overrides it with dirty/tikhonov/l1/filtered/znorm sourced from the
+        # imager, both deconvolvers and the IWP (see kremetart.core.smoovie.SmooviePipeline.compose).
         self.var_specs = tuple(var_specs)
         super().__init__(fragment, *args, **kwargs)
 

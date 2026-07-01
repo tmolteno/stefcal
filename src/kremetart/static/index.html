@@ -55,6 +55,46 @@ const liveBtn = document.createElement("button");
 liveBtn.textContent="● LIVE";
 liveBtn.style.cssText="background:#1c2c1c;color:#7CFC9B;border:1px solid #2f5b39;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer;";
 
+// ---- colorbar --------------------------------------------------------------
+const cbar = document.createElement("div");
+cbar.style.cssText = `position:fixed;right:16px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:6px;align-items:flex-end;pointer-events:none;
+  background:rgba(10,14,23,.55);padding:8px 10px;border-radius:8px;border:1px solid #1d2940;`;
+const cbUnit = mkLabel(""); cbUnit.style.color = "#cfe0f5"; cbUnit.style.fontSize = "12px";
+const cbRow = document.createElement("div");
+cbRow.style.cssText = "display:flex;gap:6px;align-items:stretch;";
+const cbarLabels = document.createElement("div");
+cbarLabels.style.cssText = `display:flex;flex-direction:column;justify-content:space-between;
+  font-size:11px;color:#7fa8d8;text-align:right;text-shadow:0 1px 2px #000;`;
+const cbMax = mkLabel(""), cbMid = mkLabel(""), cbMin = mkLabel("");
+cbarLabels.append(cbMax, cbMid, cbMin);
+const cbarCanvas = document.createElement("canvas");
+cbarCanvas.width = 16; cbarCanvas.height = 180;
+cbarCanvas.style.cssText = "border:1px solid #2a3a55;border-radius:3px;";
+cbRow.append(cbarLabels, cbarCanvas);
+cbar.append(cbUnit, cbRow);
+root.appendChild(cbar);
+
+// Paint the fixed colormap ramp once (top = max, bottom = min) — same inline ramp as paint().
+(function paintRamp(){
+  const ctx = cbarCanvas.getContext("2d"), h = cbarCanvas.height, w = cbarCanvas.width;
+  for(let y=0;y<h;y++){ const tt = 1 - y/(h-1);
+    const r = Math.min(1, 1.5*tt + 0.1*Math.sin(3.1*tt));
+    const g = Math.max(0, 1.1*tt*tt - 0.05);
+    const b = Math.max(0, 0.6*Math.sin(Math.PI*tt) + 0.15*(1-tt));
+    ctx.fillStyle = `rgb(${r*255|0},${g*255|0},${b*255|0})`; ctx.fillRect(0, y, w, 1);
+  }
+})();
+
+function fmtTick(v){ if(!isFinite(v)) return "—"; const a = Math.abs(v);
+  return (a !== 0 && (a < 1e-2 || a >= 1e4)) ? v.toExponential(2) : v.toFixed(3); }
+function updateColorbar(vmin, vmax, unit){
+  cbMax.textContent = fmtTick(vmax);
+  cbMid.textContent = fmtTick((vmin + vmax) / 2);
+  cbMin.textContent = fmtTick(vmin);
+  cbUnit.textContent = unit || "";
+}
+
 bar.append(mkLabel("output"), nameSel, mkLabel("cache"), cacheInput, cacheRead,
            mkLabel("time"), timeInput, timeRead, liveBtn);
 
@@ -185,6 +225,7 @@ function showSeq(name, seq){
   const m=rings[name]; if(!m) return;
   const f=m.get(seq); if(!f) return;     // aged out of window
   paint(name, f.values, f.vmin, f.vmax);
+  updateColorbar(f.vmin, f.vmax, geom[name]?.unit || "");
   viewSeq=seq;
   rebuildOverlay(seq);
 }
@@ -241,6 +282,7 @@ function connect(){
       const msg=JSON.parse(ev.data);
       if(msg.type==="geometry"){
         if(!geom[msg.name]){ geom[msg.name]=buildMesh(msg);
+          geom[msg.name].unit = msg.unit || "";
           bytesPerFrame=Math.max(bytesPerFrame, msg.npix*4);
           updateCacheReadout(); }
         refreshNames();
