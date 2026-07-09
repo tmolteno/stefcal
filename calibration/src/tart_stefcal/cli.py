@@ -117,14 +117,24 @@ def _fetch_catalog(lat: float, lon: float, dt, elevation: float = 45.0) -> list[
     return [{"az": s["azimuth_deg"], "el": s["elevation_deg"]} for s in positions if s["elevation_deg"] >= elevation]
 
 
-def _gains_to_json_dict(gains: np.ndarray) -> dict:
+def _gains_to_json_dict(gains: np.ndarray, *, invert_gain: bool = False) -> dict:
     """Convert complex gains to the TART API JSON format.
 
     Returns ``{"gain": [...], "phase_offset": [...]}``, rounding to 4 decimal places.
     Dead antennas (NaN) are written as ``null``.
+
+    Args:
+        gains: complex per-antenna gains.
+        invert_gain: if True, upload 1/|g| instead of |g|. The TART telescope
+            multiplies measured visibilities by the uploaded gain (see
+            ``CalibratedVisibility.get_visibility``), so the correction factor
+            is the inverse of the estimated gain.
     """
     g = np.asarray(gains)
-    amp = np.round(np.abs(g), 4)
+    amp = np.abs(g)
+    if invert_gain:
+        amp = np.where(amp > 0, 1.0 / amp, 0.0)
+    amp = np.round(amp, 4)
     phase = np.round(np.angle(g), 4)
     dead = ~np.isfinite(g)
     return {
@@ -134,10 +144,14 @@ def _gains_to_json_dict(gains: np.ndarray) -> dict:
 
 
 def _upload_gains_json(api_url: str, password: str, gains: np.ndarray, *, negate_phases: bool = False) -> None:
-    """Upload complex gains to the TART telescope API."""
+    """Upload complex gains to the TART telescope API.
+
+    The TART telescope multiplies measured visibilities by the uploaded gain
+    (CalibratedVisibility.get_visibility), so we upload 1/|g| as the correction.
+    """
     from tart_tools.api_handler import AuthorizedAPIhandler, upload_gain
 
-    api_dict = _gains_to_json_dict(gains)
+    api_dict = _gains_to_json_dict(gains, invert_gain=True)
     if negate_phases:
         api_dict["phase_offset"] = [None if v is None else -v for v in api_dict["phase_offset"]]
     api = AuthorizedAPIhandler(api_url, password)

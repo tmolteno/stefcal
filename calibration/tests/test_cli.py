@@ -62,18 +62,25 @@ def test_json_handles_nan_gains():
 
 
 def test_upload_format_matches_tart_api():
-    """Output format matches tart_upload_gains: {gain: [amps], phase_offset: [radians]}."""
+    """Output format matches tart_upload_gains: {gain: [amps], phase_offset: [radians]}.
+
+    The telescope multiplies visibilities by the uploaded gain, so the upload
+    inverts the amplitude (1/|g|) while keeping the phase.
+    """
     from tart_stefcal.cli import _gains_to_json_dict
 
     g = np.array([2.0 * np.exp(1j * np.pi / 4), np.exp(1j * np.pi)])
+    # On-disk JSON: raw gains
     d = _gains_to_json_dict(g)
-
     assert set(d.keys()) == {"gain", "phase_offset"}
     assert d["gain"] == [2.0, 1.0]
     assert d["phase_offset"] == [0.7854, 3.1416]
     # Phases are in radians, not degrees
     assert np.isclose(d["phase_offset"][0], np.pi / 4, atol=0.001)
-    assert np.isclose(d["phase_offset"][1], np.pi, atol=0.001)
+    # Upload: inverted amplitudes
+    d_upload = _gains_to_json_dict(g, invert_gain=True)
+    assert d_upload["gain"] == [0.5, 1.0]
+    assert d_upload["phase_offset"] == [0.7854, 3.1416]
 
 
 def test_referenced_phases_outputs_radians():
