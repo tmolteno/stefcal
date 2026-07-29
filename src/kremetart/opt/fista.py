@@ -117,7 +117,7 @@ def _reweighted_fista(
     info = {
         "iterations": iterations,
         "reweights": len(iterations) - 1,
-        "objective": value(x) + lam * float(xp.abs(x).sum()),
+        "objective": value(x) + lam * float((w * xp.abs(x)).sum()),
         "lipschitz": lipschitz,
         "converged": converged,
     }

@@ -5,7 +5,7 @@ cabs:
     name: stream-msv4
     info:
       Stream MSv4 data to a Zarr dataset.
-    image: ghcr.io/landmanbester/kremetart:calibration
+    image: ghcr.io/landmanbester/kremetart:latest
     inputs:
       ms:
         info:

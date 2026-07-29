@@ -14,7 +14,7 @@ from holoscan.core import Operator, OperatorSpec
 
 from kremetart.utils.iwp import frame_has_observation, iwp_filter_step
 
-_DIFFUSE = 1  # diffuse-prior variance for the frame-0 warm-up
+_DIFFUSE = 1e6  # diffuse-prior variance for the frame-0 warm-up
 
 
 class IWPKalmanOperator(Operator):

@@ -5,7 +5,7 @@ cabs:
     name: smoovie
     info:
       Image a TART HDF sequence into HEALPix maps and stream them to a live web viewer.
-    image: ghcr.io/landmanbester/kremetart:calibration
+    image: ghcr.io/landmanbester/kremetart:latest
     inputs:
       hdf-dir:
         info:
